@@ -514,15 +514,50 @@
   }
 
   async function hangUp() {
-    if (activeCall) { try { activeCall.hangup(); } catch(e) {} }
-    if (currentCall) {
-      await fetch('/api/calls/hangup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ call_id: currentCall.id, telnyx_call_id: currentCall.telnyx_call_id })
-      });
+    try {
+      console.log('[hangUp] Hanging up call:', currentCall?.id);
+
+      if (activeCall) {
+        console.log('[hangUp] Terminating WebRTC leg...');
+        try {
+          activeCall.hangup();
+          console.log('[hangUp] WebRTC leg terminated');
+        } catch (e) {
+          console.error('[hangUp] WebRTC hangup failed:', e);
+        }
+      } else {
+        console.log('[hangUp] No active WebRTC leg to terminate');
+      }
+
+      if (currentCall) {
+        console.log('[hangUp] POSTing to /api/calls/hangup, call_id:', currentCall.id, 'telnyx_call_id:', currentCall.telnyx_call_id);
+        const res = await fetch('/api/calls/hangup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ call_id: currentCall.id, telnyx_call_id: currentCall.telnyx_call_id })
+        });
+        console.log('[hangUp] /api/calls/hangup responded with status:', res.status);
+
+        const data = await res.json();
+        console.log('[hangUp] Response body:', data);
+
+        if (!res.ok) {
+          console.error('[hangUp] Hangup API returned error:', data);
+          throw new Error(data.error || `Server error ${res.status}`);
+        }
+
+        console.log('[hangUp] Call ended on server successfully');
+      } else {
+        console.error('[hangUp] No currentCall to hang up on server');
+      }
+
+      callEnded();
+      console.log('[hangUp] UI reset to post-call state');
+
+    } catch (err) {
+      console.error('[hangUp] Fatal error:', err);
+      alert(`Hang up failed: ${err.message}`);
     }
-    callEnded();
   }
 
   function callEnded() {
