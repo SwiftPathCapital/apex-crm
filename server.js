@@ -99,13 +99,21 @@ app.post('/api/calls/dial', async (req, res) => {
     const conference_id = `apex-${Date.now()}`;
 
     // First leg: call the external number
-    const outboundCall = await telnyxClient.calls.create({
-      connection_id: APP_ID,
-      to: phone_number,
-      from: process.env.TELNYX_CALLER_ID,
-      webhook_url: `${process.env.BASE_URL}/webhook`,
-      custom_headers: [{ name: 'X-Conference-Id', value: conference_id }],
+    const telnyxRes = await fetch('https://api.telnyx.com/v2/calls', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`,
+      },
+      body: JSON.stringify({
+        connection_id: APP_ID,
+        to: phone_number,
+        from: process.env.TELNYX_CALLER_ID,
+        webhook_url: `${process.env.BASE_URL}/webhook`,
+        custom_headers: [{ name: 'X-Conference-Id', value: conference_id }],
+      }),
     });
+    const outboundCall = await telnyxRes.json();
 
     // Log call in DB
     const { data: callLog } = await supabase.from('apex_calls').insert({
