@@ -1,6 +1,5 @@
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
-const telnyx = require('telnyx');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
@@ -15,8 +14,16 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Init clients
-const telnyxClient = telnyx(process.env.TELNYX_API_KEY);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+
+const telnyxFetch = (path, body) => fetch(`https://api.telnyx.com/v2${path}`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`,
+  },
+  body: JSON.stringify(body ?? {}),
+}).then(r => r.json());
 
 const APP_ID = process.env.TELNYX_APP_ID;
 const OUTBOUND_PROFILE_ID = process.env.TELNYX_OUTBOUND_PROFILE_ID;
@@ -142,7 +149,7 @@ app.post('/api/calls/dial', async (req, res) => {
 app.post('/api/calls/hangup', async (req, res) => {
   const { call_id, telnyx_call_id } = req.body;
   try {
-    await telnyxClient.calls.hangup(telnyx_call_id);
+    await telnyxFetch(`/calls/${telnyx_call_id}/actions/hangup`);
     await supabase.from('apex_calls').update({ status: 'ended', ended_at: new Date() }).eq('id', call_id);
     res.json({ success: true });
   } catch (err) {
@@ -167,7 +174,7 @@ app.post('/api/supervisor/monitor', async (req, res) => {
   const { conference_id, supervisor_sip } = req.body;
   // Join conference as silent listener
   try {
-    const call = await telnyxClient.calls.create({
+    const call = await telnyxFetch('/calls', {
       connection_id: APP_ID,
       to: `sip:${supervisor_sip}@sip.telnyx.com`,
       from: process.env.TELNYX_CALLER_ID,
@@ -186,7 +193,7 @@ app.post('/api/supervisor/monitor', async (req, res) => {
 app.post('/api/supervisor/whisper', async (req, res) => {
   const { conference_id, supervisor_sip } = req.body;
   try {
-    const call = await telnyxClient.calls.create({
+    const call = await telnyxFetch('/calls', {
       connection_id: APP_ID,
       to: `sip:${supervisor_sip}@sip.telnyx.com`,
       from: process.env.TELNYX_CALLER_ID,
@@ -205,7 +212,7 @@ app.post('/api/supervisor/whisper', async (req, res) => {
 app.post('/api/supervisor/barge', async (req, res) => {
   const { conference_id, supervisor_sip } = req.body;
   try {
-    const call = await telnyxClient.calls.create({
+    const call = await telnyxFetch('/calls', {
       connection_id: APP_ID,
       to: `sip:${supervisor_sip}@sip.telnyx.com`,
       from: process.env.TELNYX_CALLER_ID,
@@ -291,8 +298,7 @@ app.post('/webhook', async (req, res) => {
           const muted = supervisor_mode === 'monitor';
           const coach = supervisor_mode === 'whisper';
 
-          await telnyxClient.calls.join_conference(call_leg_id, {
-            call_control_id: call_leg_id,
+          await telnyxFetch(`/calls/${call_leg_id}/actions/join_conference`, {
             conference_name: conference_id,
             muted,
             coach,
