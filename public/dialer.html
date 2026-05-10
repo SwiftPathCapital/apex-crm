@@ -477,7 +477,15 @@
       });
       console.log('[startCall] /api/calls/dial responded with status:', res.status);
 
-      const data = await res.json();
+      const rawBody = await res.text();
+      alert(`[dial] /api/calls/dial\nstatus: ${res.status}\n\nbody:\n${rawBody}`);
+
+      let data = null;
+      try {
+        data = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        data = { rawBody };
+      }
       console.log('[startCall] Response body:', data);
 
       if (!res.ok) {
