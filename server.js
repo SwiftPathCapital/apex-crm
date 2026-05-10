@@ -35,7 +35,6 @@ const telnyxFetchRaw = (path, body) => fetch(`https://api.telnyx.com/v2${path}`,
 });
 
 const APP_ID = process.env.TELNYX_APP_ID;
-const TELNYX_CONNECTION_ID = process.env.TELNYX_CONNECTION_ID;
 const OUTBOUND_PROFILE_ID = process.env.TELNYX_OUTBOUND_PROFILE_ID;
 
 // ─── AUTH ────────────────────────────────────────────────────────────────────
@@ -117,7 +116,7 @@ app.post('/api/calls/dial', async (req, res) => {
 
     // First leg: call the external number
     const telnyxRes = await telnyxFetchRaw('/calls', {
-      connection_id: TELNYX_CONNECTION_ID,
+      connection_id: process.env.TELNYX_CONNECTION_ID,
       to: phone_number,
       from: process.env.TELNYX_CALLER_ID,
       webhook_url: `${process.env.BASE_URL}/webhook`,
