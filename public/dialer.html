@@ -455,13 +455,16 @@
   async function startCall() {
     if (!currentLead) return;
 
-    setStatus('on_call');
-    document.getElementById('btnDial').style.display = 'none';
-    document.getElementById('btnHangup').style.display = 'block';
-    document.getElementById('callStatusText').textContent = '⏳ Dialing...';
-
     try {
-      // Make call via backend (handles Telnyx Call Control + conference)
+      console.log('[startCall] Starting call for lead:', currentLead.id, currentLead.phone);
+
+      setStatus('on_call');
+      document.getElementById('btnDial').style.display = 'none';
+      document.getElementById('btnHangup').style.display = 'block';
+      document.getElementById('callStatusText').textContent = '⏳ Dialing...';
+      console.log('[startCall] UI updated to dialing state');
+
+      console.log('[startCall] POSTing to /api/calls/dial...');
       const res = await fetch('/api/calls/dial', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -472,22 +475,40 @@
           sip_username: agent.sip_username
         })
       });
+      console.log('[startCall] /api/calls/dial responded with status:', res.status);
 
       const data = await res.json();
-      currentCall = data.call;
+      console.log('[startCall] Response body:', data);
 
-      // Also initiate WebRTC leg to connect agent's browser audio
+      if (!res.ok) {
+        console.error('[startCall] Dial API returned error:', data);
+        throw new Error(data.error || `Server error ${res.status}`);
+      }
+
+      if (!data.call) {
+        console.error('[startCall] No call object in response:', data);
+        throw new Error('Server did not return a call object');
+      }
+
+      currentCall = data.call;
+      console.log('[startCall] Call logged, id:', currentCall.id, 'conference_id:', currentCall.conference_id);
+
       if (telnyxClient) {
+        console.log('[startCall] Initiating WebRTC leg to conference:', currentCall.conference_id);
         const webrtcCall = telnyxClient.newCall({
           destinationNumber: `sip:${currentCall.conference_id}@sip.telnyx.com`,
           callerName: agent.name,
           callerNumber: agent.sip_username,
         });
         activeCall = webrtcCall;
+        console.log('[startCall] WebRTC leg initiated successfully');
+      } else {
+        console.error('[startCall] telnyxClient not initialized — WebRTC leg skipped');
       }
 
     } catch (err) {
-      console.error('Dial error:', err);
+      console.error('[startCall] Fatal error:', err);
+      alert(`Call failed: ${err.message}`);
       resetCallUI();
     }
   }
