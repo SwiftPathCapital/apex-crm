@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APEX — Admin Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --surface2: #1a1a26;
+      --border: #1e1e2e;
+      --accent: #00d4ff;
+      --accent2: #7c3aed;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --danger: #ef4444;
+      --success: #22c55e;
+      --warning: #f59e0b;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: 56px 1fr;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+    }
+    .logo { font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: 3px; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .header-right { display: flex; align-items: center; gap: 16px; font-size: 14px; color: var(--muted); }
+    .btn-sm { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 13px; cursor: pointer; }
+    .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+
+    main {
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* STATS ROW */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 12px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+    }
+    .stat-label { font-size: 10px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .stat-val { font-family: 'Bebas Neue', sans-serif; font-size: 36px; letter-spacing: 2px; color: var(--accent); }
+    .stat-val.green { color: var(--success); }
+    .stat-val.yellow { color: var(--warning); }
+
+    /* AGENT GRID */
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .agents-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+
+    .agent-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color 0.2s;
+    }
+    .agent-card.on-call { border-color: rgba(0,212,255,0.3); background: rgba(0,212,255,0.03); }
+    .agent-card.offline { opacity: 0.5; }
+
+    .agent-top { display: flex; align-items: center; justify-content: space-between; }
+    .agent-name-row { display: flex; align-items: center; gap: 10px; }
+    .agent-avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px;
+    }
+    .agent-name { font-weight: 600; font-size: 15px; }
+    .status-badge {
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-available { background: rgba(34,197,94,0.15); color: var(--success); }
+    .badge-on_call { background: rgba(0,212,255,0.15); color: var(--accent); }
+    .badge-wrap_up { background: rgba(245,158,11,0.15); color: var(--warning); }
+    .badge-offline { background: rgba(100,116,139,0.15); color: var(--muted); }
+
+    .agent-call-info { font-size: 12px; color: var(--muted); display: none; }
+    .agent-card.on-call .agent-call-info { display: block; }
+    .call-duration { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 2px; color: var(--accent); }
+
+    .supervisor-btns { display: none; gap: 6px; }
+    .agent-card.on-call .supervisor-btns { display: flex; }
+    .btn-sup {
+      flex: 1;
+      padding: 7px 6px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s;
+    }
+    .btn-sup:hover { border-color: var(--accent2); color: var(--accent2); }
+    .btn-sup.whisper:hover { border-color: var(--warning); color: var(--warning); }
+    .btn-sup.barge:hover { border-color: var(--danger); color: var(--danger); }
+
+    /* LIVE CALLS TABLE */
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .dispo-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .pill-funded { background: rgba(34,197,94,0.15); color: var(--success); }
+    .pill-app-sent { background: rgba(0,212,255,0.15); color: var(--accent); }
+    .pill-callback { background: rgba(245,158,11,0.15); color: var(--warning); }
+    .pill-no-answer { background: rgba(100,116,139,0.15); color: var(--muted); }
+    .pill-not-interested { background: rgba(239,68,68,0.15); color: var(--danger); }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">APEX COMMAND</div>
+  <div class="header-right">
+    <span id="liveTime"></span>
+    <span>Jordan · Admin</span>
+    <button class="btn-sm" onclick="logout()">Sign Out</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- STATS -->
+  <div>
+    <div class="section-title">Today's Performance</div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Total Calls</div><div class="stat-val" id="statTotal">0</div></div>
+      <div class="stat-card"><div class="stat-label">Answered</div><div class="stat-val" id="statAnswered">0</div></div>
+      <div class="stat-card"><div class="stat-label">No Answer</div><div class="stat-val" id="statNoAnswer">0</div></div>
+      <div class="stat-card"><div class="stat-label">Callbacks</div><div class="stat-val yellow" id="statCallback">0</div></div>
+      <div class="stat-card"><div class="stat-label">App Sent</div><div class="stat-val" id="statAppSent">0</div></div>
+      <div class="stat-card"><div class="stat-label">App Signed</div><div class="stat-val" id="statAppSigned">0</div></div>
+      <div class="stat-card"><div class="stat-label">Funded</div><div class="stat-val green" id="statFunded">0</div></div>
+    </div>
+  </div>
+
+  <!-- AGENTS -->
+  <div>
+    <div class="section-title">Agent Status — Live</div>
+    <div class="agents-grid" id="agentsGrid">
+      <div style="color:var(--muted); font-size:13px;">Loading agents...</div>
+    </div>
+  </div>
+
+  <!-- RECENT CALLS -->
+  <div>
+    <div class="section-title">Recent Call Activity</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th>Contact</th>
+            <th>Business</th>
+            <th>Phone</th>
+            <th>Duration</th>
+            <th>Disposition</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="callsTable">
+          <tr><td colspan="7" style="color:var(--muted); text-align:center;">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  const agent = JSON.parse(localStorage.getItem('apex_agent') || 'null');
+  if (!agent || agent.role !== 'admin') window.location.href = '/';
+
+  const socket = io();
+  socket.emit('agent_join', agent.id);
+
+  const agentTimers = {};
+
+  // ── CLOCK ──────────────────────────────────────────────────────────────────
+  function updateClock() {
+    document.getElementById('liveTime').textContent = new Date().toLocaleTimeString();
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  // ── DATA ───────────────────────────────────────────────────────────────────
+  async function loadStats() {
+    const res = await fetch('/api/admin/stats');
+    const { stats } = await res.json();
+    document.getElementById('statTotal').textContent = stats.total_calls;
+    document.getElementById('statAnswered').textContent = stats.answered;
+    document.getElementById('statNoAnswer').textContent = stats.no_answer;
+    document.getElementById('statCallback').textContent = stats.callbacks;
+    document.getElementById('statAppSent').textContent = stats.app_sent;
+    document.getElementById('statAppSigned').textContent = stats.app_signed;
+    document.getElementById('statFunded').textContent = stats.funded;
+  }
+
+  async function loadAgents() {
+    const res = await fetch('/api/admin/agents');
+    const { agents } = await res.json();
+    const grid = document.getElementById('agentsGrid');
+    grid.innerHTML = agents.map(a => renderAgentCard(a)).join('');
+  }
+
+  function renderAgentCard(a) {
+    const initials = a.name.split(' ').map(n => n[0]).join('').toUpperCase();
+    const badgeClass = `badge-${a.status || 'offline'}`;
+    const statusLabel = (a.status || 'offline').replace('_', ' ').toUpperCase();
+    const cardClass = a.status === 'on_call' ? 'on-call' : a.status === 'offline' ? 'offline' : '';
+
+    return `
+      <div class="agent-card ${cardClass}" id="agent-card-${a.id}">
+        <div class="agent-top">
+          <div class="agent-name-row">
+            <div class="agent-avatar">${initials}</div>
+            <div class="agent-name">${a.name}</div>
+          </div>
+          <div class="status-badge ${badgeClass}">${statusLabel}</div>
+        </div>
+        <div class="agent-call-info">
+          <div class="call-duration" id="timer-${a.id}">00:00</div>
+          <div style="font-size:11px; color:var(--muted); margin-top:2px;">Live call</div>
+        </div>
+        <div class="supervisor-btns">
+          <div class="btn-sup" onclick="supervisorAction('monitor', '${a.id}')">👁️ Monitor</div>
+          <div class="btn-sup whisper" onclick="supervisorAction('whisper', '${a.id}')">💬 Whisper</div>
+          <div class="btn-sup barge" onclick="supervisorAction('barge', '${a.id}')">🎙️ Barge</div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function loadCalls() {
+    const res = await fetch('/api/admin/calls/live');
+    const { calls } = await res.json();
+    const tbody = document.getElementById('callsTable');
+
+    if (!calls?.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted); text-align:center; padding:24px;">No calls yet today</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = calls.map(c => {
+      const dispoClass = {
+        'Funded': 'pill-funded',
+        'App Sent': 'pill-app-sent',
+        'App Signed': 'pill-app-sent',
+        'Callback': 'pill-callback',
+        'No Answer': 'pill-no-answer',
+        'Not Interested': 'pill-not-interested',
+      }[c.disposition] || '';
+
+      const dur = c.duration ? `${Math.floor(c.duration/60)}:${String(c.duration%60).padStart(2,'0')}` : '—';
+      const time = c.created_at ? new Date(c.created_at).toLocaleTimeString() : '—';
+
+      return `
+        <tr>
+          <td>${c.apex_agents?.name || '—'}</td>
+          <td>${c.apex_leads?.name || '—'}</td>
+          <td>${c.apex_leads?.business_name || '—'}</td>
+          <td>${c.phone_number || '—'}</td>
+          <td>${dur}</td>
+          <td>${c.disposition ? `<span class="dispo-pill ${dispoClass}">${c.disposition}</span>` : '—'}</td>
+          <td style="color:var(--muted)">${time}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // ── SUPERVISOR ─────────────────────────────────────────────────────────────
+  async function supervisorAction(mode, agentId) {
+    // Get conference ID for agent's active call
+    const res = await fetch(`/api/admin/agents`);
+    const { agents } = await res.json();
+    const targetAgent = agents.find(a => a.id === agentId);
+
+    if (!targetAgent?.current_call_id) {
+      alert('Agent is not currently on a call.');
+      return;
+    }
+
+    const action = mode === 'monitor' ? 'monitor' : mode === 'whisper' ? 'whisper' : 'barge';
+    await fetch(`/api/supervisor/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conference_id: targetAgent.current_call_id,
+        supervisor_sip: 'apexjordan'
+      })
+    });
+
+    alert(`${mode.toUpperCase()} activated on ${targetAgent.name}'s call`);
+  }
+
+  // ── SOCKET ─────────────────────────────────────────────────────────────────
+  socket.on('agent_status_change', () => { loadAgents(); loadStats(); });
+  socket.on('call_update', () => { loadCalls(); });
+
+  // ── INIT ───────────────────────────────────────────────────────────────────
+  loadStats();
+  loadAgents();
+  loadCalls();
+  setInterval(loadStats, 30000);
+  setInterval(loadAgents, 10000);
+  setInterval(loadCalls, 15000);
+
+  async function logout() {
+    localStorage.removeItem('apex_agent');
+    window.location.href = '/';
+  }
+</script>
+</body>
+</html>

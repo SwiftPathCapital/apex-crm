@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APEX — Agent Dialer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@telnyx/webrtc@2.14.0/lib/bundle.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --surface2: #1a1a26;
+      --border: #1e1e2e;
+      --accent: #00d4ff;
+      --accent2: #7c3aed;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --danger: #ef4444;
+      --success: #22c55e;
+      --warning: #f59e0b;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: 56px 1fr;
+      grid-template-columns: 1fr;
+    }
+
+    /* HEADER */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+    }
+    .logo { font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: 3px; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .agent-info { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+    .status-dot.busy { background: var(--danger); }
+    .status-dot.wrap { background: var(--warning); }
+    .btn-sm { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 13px; cursor: pointer; }
+    .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* MAIN LAYOUT */
+    main {
+      display: grid;
+      grid-template-columns: 380px 1fr 340px;
+      gap: 0;
+      overflow: hidden;
+      height: calc(100vh - 56px);
+    }
+
+    /* PANELS */
+    .panel {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-body { flex: 1; overflow-y: auto; padding: 20px; }
+
+    /* LEAD CARD */
+    .lead-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 12px;
+    }
+    .lead-name { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+    .lead-biz { color: var(--accent); font-size: 14px; margin-bottom: 16px; }
+    .lead-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+    .lead-label { color: var(--muted); }
+    .lead-score { display: inline-flex; align-items: center; gap: 4px; background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2); border-radius: 20px; padding: 2px 10px; font-size: 12px; color: var(--accent); }
+
+    /* CALL CONTROLS */
+    .call-controls {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 20px;
+    }
+    .call-timer { text-align: center; font-family: 'Bebas Neue', sans-serif; font-size: 36px; letter-spacing: 4px; color: var(--accent); margin-bottom: 16px; display: none; }
+    .call-status-text { text-align: center; font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+    .btn-dial {
+      width: 100%;
+      padding: 18px;
+      background: linear-gradient(135deg, var(--success), #16a34a);
+      border: none;
+      border-radius: 10px;
+      color: white;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      letter-spacing: 3px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn-dial:hover { opacity: 0.9; }
+    .btn-dial:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-hangup {
+      width: 100%;
+      padding: 18px;
+      background: linear-gradient(135deg, var(--danger), #b91c1c);
+      border: none;
+      border-radius: 10px;
+      color: white;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      letter-spacing: 3px;
+      cursor: pointer;
+      display: none;
+    }
+    .call-row { display: flex; gap: 8px; margin-top: 8px; }
+    .btn-mute {
+      flex: 1;
+      padding: 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .btn-mute.active { border-color: var(--warning); color: var(--warning); }
+
+    /* DISPO */
+    .dispo-section { display: none; }
+    .dispo-section.show { display: block; }
+    .dispo-title { font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+    .dispo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .btn-dispo {
+      padding: 10px 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s;
+    }
+    .btn-dispo:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.05); }
+    .btn-dispo.selected { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.1); }
+    .btn-dispo.dnc:hover, .btn-dispo.dnc.selected { border-color: var(--danger); color: var(--danger); background: rgba(239,68,68,0.1); }
+    .notes-field { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; resize: none; height: 70px; margin-bottom: 10px; outline: none; }
+    .notes-field:focus { border-color: var(--accent); }
+    .btn-save-dispo {
+      width: 100%;
+      padding: 12px;
+      background: var(--accent2);
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 16px;
+      letter-spacing: 2px;
+      cursor: pointer;
+    }
+
+    /* CENTER - SCRIPT */
+    .script-panel { border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+    .script-content { flex: 1; overflow-y: auto; padding: 24px; }
+    .script-block {
+      background: var(--surface2);
+      border-left: 3px solid var(--accent2);
+      border-radius: 0 8px 8px 0;
+      padding: 16px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+    .script-block.highlight { border-left-color: var(--accent); }
+
+    /* RIGHT - CALL LOG */
+    .log-panel { display: flex; flex-direction: column; border-right: none; }
+    .log-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .log-item-top { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .log-name { font-weight: 500; }
+    .log-time { color: var(--muted); font-size: 11px; }
+    .log-dispo { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .dispo-funded { background: rgba(34,197,94,0.15); color: var(--success); }
+    .dispo-app-sent { background: rgba(0,212,255,0.15); color: var(--accent); }
+    .dispo-callback { background: rgba(245,158,11,0.15); color: var(--warning); }
+    .dispo-no-answer { background: rgba(100,116,139,0.15); color: var(--muted); }
+    .dispo-not-interested { background: rgba(239,68,68,0.15); color: var(--danger); }
+    .dispo-dnc { background: rgba(239,68,68,0.2); color: var(--danger); }
+
+    /* NO LEAD STATE */
+    .no-lead {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+    }
+    .no-lead-icon { font-size: 48px; margin-bottom: 16px; }
+    .btn-next-lead {
+      margin-top: 20px;
+      padding: 14px 28px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 18px;
+      letter-spacing: 2px;
+      cursor: pointer;
+    }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">APEX</div>
+  <div class="agent-info">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="agentName">Loading...</span>
+    <span id="statusLabel" style="color: var(--muted); font-size:13px;">Available</span>
+    <button class="btn-sm" onclick="logout()">Sign Out</button>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT: LEAD + CONTROLS -->
+  <div class="panel" id="leftPanel">
+    <div class="panel-header">
+      <span>Current Lead</span>
+      <span class="lead-score" id="leadScore" style="display:none">⚡ <span id="scoreVal">0</span></span>
+    </div>
+
+    <div class="panel-body" id="leadBody">
+      <div class="no-lead" id="noLeadState">
+        <div class="no-lead-icon">📋</div>
+        <div>No active lead</div>
+        <div style="font-size:13px; margin-top:8px;">Click below to load your next lead</div>
+        <button class="btn-next-lead" onclick="loadNextLead()">LOAD NEXT LEAD</button>
+      </div>
+
+      <div id="leadInfo" style="display:none">
+        <div class="lead-card">
+          <div class="lead-name" id="leadName">—</div>
+          <div class="lead-biz" id="leadBiz">—</div>
+          <div class="lead-row"><span class="lead-label">Phone</span><span id="leadPhone">—</span></div>
+          <div class="lead-row"><span class="lead-label">State</span><span id="leadState">—</span></div>
+          <div class="lead-row"><span class="lead-label">Type</span><span id="leadType">—</span></div>
+          <div class="lead-row"><span class="lead-label">Status</span><span id="leadStatus">—</span></div>
+        </div>
+
+        <!-- DISPO after call -->
+        <div class="dispo-section" id="dispoSection">
+          <div class="dispo-title">Disposition</div>
+          <div class="dispo-grid">
+            <div class="btn-dispo" onclick="selectDispo(this, 'Answered')">✅ Answered</div>
+            <div class="btn-dispo" onclick="selectDispo(this, 'No Answer')">📵 No Answer</div>
+            <div class="btn-dispo" onclick="selectDispo(this, 'Callback')">📅 Callback</div>
+            <div class="btn-dispo" onclick="selectDispo(this, 'Not Interested')">👎 Not Interested</div>
+            <div class="btn-dispo" onclick="selectDispo(this, 'App Sent')">📤 App Sent</div>
+            <div class="btn-dispo" onclick="selectDispo(this, 'App Signed')">✍️ App Signed</div>
+            <div class="btn-dispo" onclick="selectDispo(this, 'Funded')">💰 Funded</div>
+            <div class="btn-dispo dnc" onclick="selectDispo(this, 'DNC')">🚫 DNC</div>
+          </div>
+          <textarea class="notes-field" id="callNotes" placeholder="Add notes..."></textarea>
+          <button class="btn-save-dispo" onclick="saveDispo()">SAVE & NEXT LEAD</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="call-controls">
+      <div class="call-timer" id="callTimer">00:00</div>
+      <div class="call-status-text" id="callStatusText">Ready to dial</div>
+      <button class="btn-dial" id="btnDial" onclick="startCall()" disabled>📞 DIAL</button>
+      <button class="btn-hangup" id="btnHangup" onclick="hangUp()">📵 HANG UP</button>
+      <div class="call-row" id="callRow" style="display:none">
+        <button class="btn-mute" id="btnMute" onclick="toggleMute()">🎤 Mute</button>
+        <button class="btn-mute" onclick="holdCall()">⏸️ Hold</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER: SCRIPT -->
+  <div class="script-panel">
+    <div class="panel-header"><span>Call Script</span></div>
+    <div class="script-content" id="scriptContent">
+      <div style="color: var(--muted); font-size:13px; text-align:center; padding:40px;">Load a lead to see the call script</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: CALL LOG -->
+  <div class="log-panel">
+    <div class="panel-header"><span>Today's Calls</span><span id="callCount" style="color:var(--accent)">0</span></div>
+    <div class="panel-body" id="callLog" style="padding:0;"></div>
+  </div>
+</main>
+
+<script>
+  // ── STATE ──────────────────────────────────────────────────────────────────
+  const agent = JSON.parse(localStorage.getItem('apex_agent') || 'null');
+  if (!agent) window.location.href = '/';
+
+  let currentLead = null;
+  let currentCall = null;
+  let selectedDispo = null;
+  let timerInterval = null;
+  let timerSeconds = 0;
+  let isMuted = false;
+  let telnyxClient = null;
+  let activeCall = null;
+
+  const socket = io();
+  socket.emit('agent_join', agent.id);
+
+  // ── INIT ───────────────────────────────────────────────────────────────────
+  document.getElementById('agentName').textContent = agent.name;
+  initWebRTC();
+  loadCurrentLead();
+  loadCallLog();
+
+  // ── WEBRTC ─────────────────────────────────────────────────────────────────
+  function initWebRTC() {
+    try {
+      telnyxClient = new TelnyxRTC({
+        login: agent.sip_username,
+        password: getSipPassword(agent.sip_username),
+        ringtoneFile: '/sounds/ring.mp3',
+      });
+
+      telnyxClient.on('telnyx.ready', () => {
+        console.log('WebRTC ready');
+        setStatus('available');
+      });
+
+      telnyxClient.on('telnyx.error', (err) => {
+        console.error('WebRTC error:', err);
+        setStatus('offline');
+      });
+
+      telnyxClient.on('telnyx.notification', (notification) => {
+        if (notification.type === 'callUpdate') {
+          handleCallUpdate(notification.call);
+        }
+      });
+
+      telnyxClient.connect();
+    } catch (e) {
+      console.error('WebRTC init failed:', e);
+    }
+  }
+
+  function getSipPassword(username) {
+    // Passwords stored as env-injected config
+    const passwords = window.AGENT_PASSWORDS || {};
+    return passwords[username] || '';
+  }
+
+  function handleCallUpdate(call) {
+    activeCall = call;
+    const state = call.state;
+
+    if (state === 'active') {
+      document.getElementById('callStatusText').textContent = '🟢 Connected';
+      document.getElementById('callTimer').style.display = 'block';
+      document.getElementById('callRow').style.display = 'flex';
+      startTimer();
+    } else if (state === 'held') {
+      document.getElementById('callStatusText').textContent = '⏸️ On Hold';
+    } else if (state === 'destroy') {
+      callEnded();
+    }
+  }
+
+  // ── LEAD MANAGEMENT ────────────────────────────────────────────────────────
+  async function loadCurrentLead() {
+    const res = await fetch(`/api/leads/current?agent_id=${agent.id}`);
+    const data = await res.json();
+    if (data.lead) showLead(data.lead);
+  }
+
+  async function loadNextLead() {
+    const res = await fetch(`/api/leads/next?agent_id=${agent.id}`);
+    if (res.status === 403) {
+      alert('Please dispose your current call first.');
+      return;
+    }
+    const data = await res.json();
+    if (data.lead) {
+      showLead(data.lead);
+    } else {
+      alert('No more leads available right now.');
+    }
+  }
+
+  function showLead(lead) {
+    currentLead = lead;
+    document.getElementById('noLeadState').style.display = 'none';
+    document.getElementById('leadInfo').style.display = 'block';
+    document.getElementById('leadName').textContent = lead.name || 'Unknown';
+    document.getElementById('leadBiz').textContent = lead.business_name || '';
+    document.getElementById('leadPhone').textContent = lead.phone || '—';
+    document.getElementById('leadState').textContent = lead.state || '—';
+    document.getElementById('leadType').textContent = lead.lead_type || '—';
+    document.getElementById('leadStatus').textContent = lead.status || '—';
+
+    if (lead.lead_score) {
+      document.getElementById('leadScore').style.display = 'inline-flex';
+      document.getElementById('scoreVal').textContent = lead.lead_score;
+    }
+
+    document.getElementById('btnDial').disabled = false;
+    document.getElementById('callStatusText').textContent = 'Ready to dial';
+    loadScript(lead.lead_type);
+  }
+
+  async function loadScript(leadType) {
+    const res = await fetch('/api/scripts');
+    const data = await res.json();
+    const script = data.scripts?.[0];
+    if (!script) return;
+
+    const content = document.getElementById('scriptContent');
+    const lines = script.content.split('\n\n');
+    content.innerHTML = lines.map((block, i) =>
+      `<div class="script-block ${i === 0 ? 'highlight' : ''}">${block}</div>`
+    ).join('');
+  }
+
+  // ── CALLING ────────────────────────────────────────────────────────────────
+  async function startCall() {
+    if (!currentLead) return;
+
+    setStatus('on_call');
+    document.getElementById('btnDial').style.display = 'none';
+    document.getElementById('btnHangup').style.display = 'block';
+    document.getElementById('callStatusText').textContent = '⏳ Dialing...';
+
+    try {
+      // Make call via backend (handles Telnyx Call Control + conference)
+      const res = await fetch('/api/calls/dial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent_id: agent.id,
+          lead_id: currentLead.id,
+          phone_number: currentLead.phone,
+          sip_username: agent.sip_username
+        })
+      });
+
+      const data = await res.json();
+      currentCall = data.call;
+
+      // Also initiate WebRTC leg to connect agent's browser audio
+      if (telnyxClient) {
+        const webrtcCall = telnyxClient.newCall({
+          destinationNumber: `sip:${currentCall.conference_id}@sip.telnyx.com`,
+          callerName: agent.name,
+          callerNumber: agent.sip_username,
+        });
+        activeCall = webrtcCall;
+      }
+
+    } catch (err) {
+      console.error('Dial error:', err);
+      resetCallUI();
+    }
+  }
+
+  async function hangUp() {
+    if (activeCall) { try { activeCall.hangup(); } catch(e) {} }
+    if (currentCall) {
+      await fetch('/api/calls/hangup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ call_id: currentCall.id, telnyx_call_id: currentCall.telnyx_call_id })
+      });
+    }
+    callEnded();
+  }
+
+  function callEnded() {
+    stopTimer();
+    document.getElementById('btnDial').style.display = 'block';
+    document.getElementById('btnDial').disabled = true;
+    document.getElementById('btnHangup').style.display = 'none';
+    document.getElementById('callRow').style.display = 'none';
+    document.getElementById('callStatusText').textContent = 'Call ended — select disposition';
+    document.getElementById('dispoSection').classList.add('show');
+    setStatus('wrap_up');
+  }
+
+  function toggleMute() {
+    isMuted = !isMuted;
+    if (activeCall) { isMuted ? activeCall.muteAudio() : activeCall.unmuteAudio(); }
+    const btn = document.getElementById('btnMute');
+    btn.textContent = isMuted ? '🔇 Unmute' : '🎤 Mute';
+    btn.classList.toggle('active', isMuted);
+  }
+
+  function holdCall() {
+    if (activeCall) { activeCall.held ? activeCall.unhold() : activeCall.hold(); }
+  }
+
+  // ── DISPOSITION ────────────────────────────────────────────────────────────
+  function selectDispo(el, dispo) {
+    document.querySelectorAll('.btn-dispo').forEach(b => b.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedDispo = dispo;
+  }
+
+  async function saveDispo() {
+    if (!selectedDispo) { alert('Please select a disposition first.'); return; }
+
+    const notes = document.getElementById('callNotes').value;
+
+    await fetch('/api/calls/disposition', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        call_id: currentCall?.id,
+        agent_id: agent.id,
+        lead_id: currentLead?.id,
+        disposition: selectedDispo,
+        notes
+      })
+    });
+
+    // Reset and load next
+    resetCallUI();
+    loadCallLog();
+    currentCall = null;
+    currentLead = null;
+    selectedDispo = null;
+    document.getElementById('callNotes').value = '';
+    document.querySelectorAll('.btn-dispo').forEach(b => b.classList.remove('selected'));
+    document.getElementById('dispoSection').classList.remove('show');
+    document.getElementById('leadInfo').style.display = 'none';
+    document.getElementById('noLeadState').style.display = 'block';
+
+    // Auto load next lead
+    setTimeout(loadNextLead, 500);
+  }
+
+  // ── CALL LOG ───────────────────────────────────────────────────────────────
+  async function loadCallLog() {
+    const res = await fetch(`/api/admin/calls/live`);
+    // Using call log from today — simplified for agent view
+    const logEl = document.getElementById('callLog');
+    // Could enhance with agent-specific endpoint
+  }
+
+  // ── TIMER ──────────────────────────────────────────────────────────────────
+  function startTimer() {
+    timerSeconds = 0;
+    timerInterval = setInterval(() => {
+      timerSeconds++;
+      const m = String(Math.floor(timerSeconds / 60)).padStart(2, '0');
+      const s = String(timerSeconds % 60).padStart(2, '0');
+      document.getElementById('callTimer').textContent = `${m}:${s}`;
+    }, 1000);
+  }
+
+  function stopTimer() {
+    clearInterval(timerInterval);
+    document.getElementById('callTimer').style.display = 'none';
+    timerSeconds = 0;
+  }
+
+  // ── UI HELPERS ─────────────────────────────────────────────────────────────
+  function setStatus(status) {
+    const dot = document.getElementById('statusDot');
+    const label = document.getElementById('statusLabel');
+    dot.className = 'status-dot';
+    if (status === 'on_call') { dot.classList.add('busy'); label.textContent = 'On Call'; }
+    else if (status === 'wrap_up') { dot.classList.add('wrap'); label.textContent = 'Wrap Up'; }
+    else if (status === 'available') { label.textContent = 'Available'; }
+    else { label.textContent = 'Offline'; }
+  }
+
+  function resetCallUI() {
+    setStatus('available');
+    document.getElementById('btnDial').style.display = 'block';
+    document.getElementById('btnHangup').style.display = 'none';
+    document.getElementById('callRow').style.display = 'none';
+    document.getElementById('callStatusText').textContent = 'Ready to dial';
+    stopTimer();
+  }
+
+  async function logout() {
+    await fetch('/api/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: agent.id })
+    });
+    localStorage.removeItem('apex_agent');
+    window.location.href = '/';
+  }
+
+  // ── SOCKET EVENTS ──────────────────────────────────────────────────────────
+  socket.on('call_ended', (data) => {
+    if (data.agent_id === agent.id) callEnded();
+  });
+</script>
+</body>
+</html>
