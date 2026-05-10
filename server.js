@@ -25,7 +25,17 @@ const telnyxFetch = (path, body) => fetch(`https://api.telnyx.com/v2${path}`, {
   body: JSON.stringify(body ?? {}),
 }).then(r => r.json());
 
+const telnyxFetchRaw = (path, body) => fetch(`https://api.telnyx.com/v2${path}`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`,
+  },
+  body: JSON.stringify(body ?? {}),
+});
+
 const APP_ID = process.env.TELNYX_APP_ID;
+const TELNYX_CONNECTION_ID = process.env.TELNYX_CONNECTION_ID;
 const OUTBOUND_PROFILE_ID = process.env.TELNYX_OUTBOUND_PROFILE_ID;
 
 // ─── AUTH ────────────────────────────────────────────────────────────────────
@@ -106,21 +116,32 @@ app.post('/api/calls/dial', async (req, res) => {
     const conference_id = `apex-${Date.now()}`;
 
     // First leg: call the external number
-    const telnyxRes = await fetch('https://api.telnyx.com/v2/calls', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`,
-      },
-      body: JSON.stringify({
-        connection_id: APP_ID,
-        to: phone_number,
-        from: process.env.TELNYX_CALLER_ID,
-        webhook_url: `${process.env.BASE_URL}/webhook`,
-        custom_headers: [{ name: 'X-Conference-Id', value: conference_id }],
-      }),
+    const telnyxRes = await telnyxFetchRaw('/calls', {
+      connection_id: TELNYX_CONNECTION_ID,
+      to: phone_number,
+      from: process.env.TELNYX_CALLER_ID,
+      webhook_url: `${process.env.BASE_URL}/webhook`,
+      custom_headers: [{ name: 'X-Conference-Id', value: conference_id }],
     });
-    const outboundCall = await telnyxRes.json();
+
+    const telnyxBodyText = await telnyxRes.text();
+    const telnyxHeaders = Object.fromEntries(telnyxRes.headers.entries());
+    console.log('[telnyx] POST /v2/calls response status:', telnyxRes.status);
+    console.log('[telnyx] POST /v2/calls response headers:', telnyxHeaders);
+    console.log('[telnyx] POST /v2/calls response body (raw):', telnyxBodyText);
+
+    if (!telnyxRes.ok) {
+      throw new Error(`Telnyx API error ${telnyxRes.status}: ${telnyxBodyText}`);
+    }
+
+    let outboundCall = null;
+    try {
+      outboundCall = telnyxBodyText ? JSON.parse(telnyxBodyText) : {};
+    } catch (e) {
+      console.log('[telnyx] POST /v2/calls response JSON parse error:', e?.message || e);
+      outboundCall = { rawBody: telnyxBodyText };
+    }
+    console.log('[telnyx] POST /v2/calls response body (parsed):', outboundCall);
 
     // Log call in DB
     const { data: callLog } = await supabase.from('apex_calls').insert({
